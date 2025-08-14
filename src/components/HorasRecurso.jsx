@@ -23,7 +23,7 @@ const swalBase = {
   cancelButtonColor: "#424a64",
 };
 
-const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
+const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [proyectos, setProyectos] = useState([]);
@@ -90,7 +90,6 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
 
             const state = table.getState();
 
-            // ✅ decide explícitamente si esta fila es la que está en creación o en edición
             const isCreatingThis = state.creatingRow?.id === row.id;
             const isEditingThis = state.editingRow?.id === row.id;
             if (!isCreatingThis && !isEditingThis) return;
@@ -102,7 +101,6 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
               ? table.setCreatingRow
               : table.setEditingRow;
 
-            // 1) actualiza solo ESTA fila (no la otra)
             setTarget({
               ...targetRowState,
               values: {
@@ -112,17 +110,13 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
               },
             });
 
-            // 2) si usas draftByRowId para pintar Tipo/Folio al instante:
             setDraftByRowId((prev) => ({
               ...prev,
               [row.id]: { tipo: p?.tipo ?? "", folio: p?.folio ?? "" },
             }));
           },
         }),
-        muiTableHeadCellProps: {
-          align: "left",
-          
-        },
+        muiTableHeadCellProps: { align: "left" },
         muiTableBodyCellProps: {
           align: "left",
           sx: { whiteSpace: "normal", backgroundColor: "#0e111b" },
@@ -241,6 +235,13 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
     fetchHoras();
   }, [recursoId, meses]);
 
+  const notifyParent = async () => {
+    // avisa al resumen (si lo necesitas)
+    onRefreshResumen?.();
+    // y avisa al padre para recargar la tabla Recursos y mantener selección
+    await onMutateParent?.();
+  };
+
   const handleSaveRow = async ({ values, table }) => {
     try {
       const state = table.getState();
@@ -310,10 +311,9 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
       table.setEditingRow(null);
       table.setCreatingRow?.(null);
 
-      // 5) Actualiza el estado local (quita la fila vieja y agrega/actualiza la nueva)
+      // 5) Actualiza el estado local optimistamente
       const pSel = proyectos.find((x) => Number(x.id) === newProyectoId);
       setData((prev) => {
-        // quita la fila del proyecto anterior si cambió
         const cleaned =
           !isCreating &&
           oldProyectoId != null &&
@@ -329,7 +329,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
           tipo: pSel?.tipo ?? "",
           folio: pSel?.folio ?? "",
           ...Object.fromEntries(
-            meses.map((_, i) => [`horas_${i}`, values[`horas_${i}`] ?? ""])
+            meses.map((_, i) => [`horas_${i}`, values[`horas_${i}`] ?? ""] )
           ),
         };
 
@@ -343,7 +343,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
         return [base, ...cleaned];
       });
 
-      // 6) Limpia el draft de esa fila (si usas draftByRowId)
+      // 6) Limpia el draft
       setDraftByRowId?.((prev) => {
         const rowId = state.editingRow?.id ?? state.creatingRow?.id;
         if (!rowId) return prev;
@@ -351,7 +351,8 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
         return rest;
       });
 
-      onRefreshResumen?.();
+      // 7) 🔔 Notifica al padre para refrescar la tabla Recursos (y mantener selección)
+      await notifyParent();
     } catch (error) {
       console.error("Error al guardar horas:", error.message);
       alert("Hubo un problema al guardar los datos.");
@@ -362,7 +363,6 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
     const proyectoId = row.original.proyecto_id;
     const nombre = row.original?.nombre ?? "";
 
-    // Confirmación bonita
     const { isConfirmed } = await Swal.fire({
       icon: "warning",
       title: "Eliminar asignación",
@@ -387,7 +387,6 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
       setData((prev) =>
         prev.filter((r) => Number(r.proyecto_id) !== Number(proyectoId))
       );
-      onRefreshResumen?.();
 
       await Swal.fire({
         icon: "success",
@@ -399,6 +398,9 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
         timerProgressBar: true,
         ...swalBase,
       });
+
+      // 🔔 Notifica al padre
+      await notifyParent();
     } catch (error) {
       console.error("Error al eliminar fila:", error.message);
       await Swal.fire({
@@ -411,167 +413,165 @@ const HorasRecurso = ({ recursoId, onRefreshResumen }) => {
   };
 
   const table = useMaterialReactTable({
-  columns,
-  data,
-  editingMode: "row",
-  enableEditing: true,
-  enableRowEditing: true,
-  editDisplayMode: "row",
-  createDisplayMode: "row",
+    columns,
+    data,
+    editingMode: "row",
+    enableEditing: true,
+    enableRowEditing: true,
+    editDisplayMode: "row",
+    createDisplayMode: "row",
 
-  // barras / toggles
-  enableTopToolbar: true,
-  enableBottomToolbar: false,
-  enableColumnActions: false,
-  enableColumnFilters: false,
-  enableDensityToggle: false,
-  enableFullScreenToggle: false,
-  enableHiding: false,
+    // barras / toggles
+    enableTopToolbar: true,
+    enableBottomToolbar: false,
+    enableColumnActions: false,
+    enableColumnFilters: false,
+    enableDensityToggle: false,
+    enableFullScreenToggle: false,
+    enableHiding: false,
 
-  localization: MRT_Localization_ES,
-  initialState: { columnVisibility: { proyecto_id: false } },
-  getRowId: (row) =>
-    typeof row.proyecto_id === "number" || typeof row.proyecto_id === "string"
-      ? row.proyecto_id
-      : `tmp-${Math.random()}`,
-  muiEditRowModalProps: { open: false },
-  onEditingRowSave: (props) => handleSaveRow(props),
-  onCreatingRowSave: (props) => handleSaveRow(props),
+    localization: MRT_Localization_ES,
+    initialState: { columnVisibility: { proyecto_id: false } },
+    getRowId: (row) =>
+      typeof row.proyecto_id === "number" || typeof row.proyecto_id === "string"
+        ? row.proyecto_id
+        : `tmp-${Math.random()}`,
+    muiEditRowModalProps: { open: false },
+    onEditingRowSave: (props) => handleSaveRow(props),
+    onCreatingRowSave: (props) => handleSaveRow(props),
 
-  // ==== 👇 COMPACTO ====
-  muiTableProps: {
-    size: "small",
-    sx: {
-      "& .MuiTableCell-root": { py: 0.25, px: 0.75 },
-      "& thead .MuiTableCell-root": { py: 0.5, fontSize: "0.78rem" },
-      "& tbody .MuiTableCell-root": { fontSize: "0.78rem", lineHeight: 1.15 },
-      "& .MuiTableRow-root": { height: 28 },
-      "& .MuiIconButton-root": { padding: 0.25 },
-      "& .MuiCheckbox-root": { padding: 0.25 },
+    // ==== 👇 COMPACTO ====
+    muiTableProps: {
+      size: "small",
+      sx: {
+        "& .MuiTableCell-root": { py: 0.25, px: 0.75 },
+        "& thead .MuiTableCell-root": { py: 0.5, fontSize: "0.78rem" },
+        "& tbody .MuiTableCell-root": { fontSize: "0.78rem", lineHeight: 1.15 },
+        "& .MuiTableRow-root": { height: 28 },
+        "& .MuiIconButton-root": { padding: 0.25 },
+        "& .MuiCheckbox-root": { padding: 0.25 },
+      },
     },
-  },
-  muiTableContainerProps: { sx: { overflowX: "auto" } },
+    muiTableContainerProps: { sx: { overflowX: "auto" } },
 
-  displayColumnDefOptions: {
-    "mrt-row-select": {
-      size: 0,
-      enableHiding: false,
-      visibleInShowHideMenu: false,
-      header: "",
+    displayColumnDefOptions: {
+      "mrt-row-select": {
+        size: 0,
+        enableHiding: false,
+        visibleInShowHideMenu: false,
+        header: "",
+      },
     },
-  },
 
-  renderRowActions: ({ row, table }) => (
-    <>
-      <IconButton
+    renderRowActions: ({ row, table }) => (
+      <>
+        <IconButton
+          size="small"
+          color="primary"
+          onClick={() => table.setEditingRow(row)}
+          sx={{ mr: 0.5 }}
+        >
+          <EditIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          color="error"
+          onClick={() => handleDeleteRow({ row })}
+        >
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </>
+    ),
+
+    renderTopToolbarCustomActions: ({ table }) => (
+      <Button
         size="small"
-        color="primary"
-        onClick={() => table.setEditingRow(row)}
-        sx={{ mr: 0.5 }}
+        onClick={() => {
+          const nuevaFila = {
+            recurso_id: recursoId,
+            proyecto_id: null,
+            nombre: "",
+            tipo: "",
+            folio: "",
+            horas_0: "",
+            horas_1: "",
+            horas_2: "",
+          };
+          table.setCreatingRow(createRow(table, nuevaFila));
+        }}
+        variant="contained"
+        sx={{ py: 0.5, px: 1.25 }}
       >
-        <EditIcon fontSize="small" />
-      </IconButton>
-      <IconButton
-        size="small"
-        color="error"
-        onClick={() => handleDeleteRow({ row })}
-      >
-        <DeleteIcon fontSize="small" />
-      </IconButton>
-    </>
-  ),
+        Agregar Proyecto/Mtto
+      </Button>
+    ),
 
-  renderTopToolbarCustomActions: ({ table }) => (
-    <Button
-      size="small"
-      onClick={() => {
-        const nuevaFila = {
-          recurso_id: recursoId,
-          proyecto_id: null,
-          nombre: "",
-          tipo: "",
-          folio: "",
-          horas_0: "",
-          horas_1: "",
-          horas_2: "",
-        };
-        table.setCreatingRow(createRow(table, nuevaFila));
-      }}
-      variant="contained"
-      sx={{ py: 0.5, px: 1.25 }}
-    >
-      Agregar Proyecto/Mtto
-    </Button>
-  ),
-
-  onEditingRowCancel: () => {
-    const rowId =
-      table.getState().editingRow?.id ?? table.getState().creatingRow?.id;
-    setDraftByRowId((prev) => {
-      if (!rowId) return prev;
-      const { [rowId]: _, ...rest } = prev;
-      return rest;
-    });
-  },
-
-  positionToolbarAlertBanner: "bottom",
-  muiTopToolbarProps: {
-    sx: {
-      backgroundColor: "#0e111b",
-      color: "#ffffff",
-      borderBottom: "1px solid #444",
-      fontWeight: "bold",
-      fontSize: "0.8rem",
-      minHeight: 36,
-      "& .MuiInputBase-root": { fontSize: "0.8rem" },
-      "& .MuiIconButton-root": { padding: 0.25 },
+    onEditingRowCancel: () => {
+      const rowId =
+        table.getState().editingRow?.id ?? table.getState().creatingRow?.id;
+      setDraftByRowId((prev) => {
+        if (!rowId) return prev;
+        const { [rowId]: _, ...rest } = prev;
+        return rest;
+      });
     },
-  },
 
-  muiTableBodyCellProps: {
-    sx: {
-      color: "#e0e0e0",
-      backgroundColor: "#0e111b",
-      borderColor: "#2c2c2cff",
-      py: 0.25,      // compacto
-      px: 0.75,      // compacto
-      fontSize: "0.78rem",
-      lineHeight: 1.15,
-      whiteSpace: "nowrap",
+    positionToolbarAlertBanner: "bottom",
+    muiTopToolbarProps: {
+      sx: {
+        backgroundColor: "#0e111b",
+        color: "#ffffff",
+        borderBottom: "1px solid #444",
+        fontWeight: "bold",
+        fontSize: "0.8rem",
+        minHeight: 36,
+        "& .MuiInputBase-root": { fontSize: "0.8rem" },
+        "& .MuiIconButton-root": { padding: 0.25 },
+      },
     },
-  },
 
-  muiTableHeadCellProps: {
-    align: "center",
-    sx: {
-      backgroundColor: "#21283dff",
-      color: "#ffffff",
-      fontWeight: "bold",
-      borderColor: "#2c2c2c",
-      py: 0.5,
-      px: 0.75,
-      fontSize: "0.78rem",
-      lineHeight: 1.1,
-      whiteSpace: "nowrap",
+    muiTableBodyCellProps: {
+      sx: {
+        color: "#e0e0e0",
+        backgroundColor: "#0e111b",
+        borderColor: "#2c2c2cff",
+        py: 0.25,
+        px: 0.75,
+        fontSize: "0.78rem",
+        lineHeight: 1.15,
+        whiteSpace: "nowrap",
+      },
     },
-  },
 
-  muiBottomToolbarProps: {
-    sx: {
-      backgroundColor: "#0e111b",
-      color: "#ffffff",
-      borderTop: "1px solid #444",
-      fontWeight: "bold",
-      fontSize: "0.8rem",
-      minHeight: 36,
-      justifyContent: "center",
+    muiTableHeadCellProps: {
+      align: "center",
+      sx: {
+        backgroundColor: "#21283dff",
+        color: "#ffffff",
+        fontWeight: "bold",
+        borderColor: "#2c2c2c",
+        py: 0.5,
+        px: 0.75,
+        fontSize: "0.78rem",
+        lineHeight: 1.1,
+        whiteSpace: "nowrap",
+      },
     },
-  },
 
-  // checkboxes compactos (si aparecen)
-  muiSelectCheckboxProps: { size: "small" },
-});
+    muiBottomToolbarProps: {
+      sx: {
+        backgroundColor: "#0e111b",
+        color: "#ffffff",
+        borderTop: "1px solid #444",
+        fontWeight: "bold",
+        fontSize: "0.8rem",
+        minHeight: 36,
+        justifyContent: "center",
+      },
+    },
 
+    muiSelectCheckboxProps: { size: "small" },
+  });
 
   if (loading) return <Typography>Cargando datos...</Typography>;
 
