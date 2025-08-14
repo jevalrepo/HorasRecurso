@@ -102,7 +102,7 @@ const Recursos = () => {
   const [loading, setLoading] = useState(true);
   const [rowSelection, setRowSelection] = useState({});
   const [horasRecursoSeleccionado, setHorasRecursoSeleccionado] = useState([]);
-  const [refreshResumenKey, setRefreshResumenKey] = useState(0);
+  const [setRefreshResumenKey] = useState(0);
 
   const refreshRecursosKeepSelection = async () => {
     const currentId = selectedRecursoId; // recuerda quién está seleccionado
@@ -298,42 +298,47 @@ const Recursos = () => {
       },
 
       {
-        accessorKey: "totalHoras",
-        header: "Total de Horas",
-        size: 10,
-        enableEditing: true,
-        muiTableBodyCellProps: ({ row }) => {
-          const asignadas = row.original.totalAsignadoMes ?? 0;
-          const total = row.original.totalHoras ?? DEFAULT_CAP;
+  accessorKey: "totalHoras",
+  header: "Total de Horas",
+  size: 10,
+  enableEditing: true,
+  muiTableBodyCellProps: ({ row }) => {
+    const asignadas = row.original.totalAsignadoMes ?? 0;
+    const total = row.original.totalHoras ?? DEFAULT_CAP;
 
-          let bgColor = "";
-          let textColor = "#fff"; // texto blanco para contraste
+    let bgColor = "";
+    let textColor = "#fff"; // texto blanco para contraste
+    const porcentaje = (asignadas / total) * 100;
 
-          if (asignadas >= total) {
-            bgColor = "#1b5e20"; // verde oscuro
-          } else {
-            bgColor = "#b71c1c"; // rojo oscuro
-          }
+    if (porcentaje >= 100) {
+      bgColor = "#1b5e20"; // verde oscuro
+    } else if (porcentaje >= 70) {
+      bgColor = "#fbc02d"; // amarillo
+      textColor = "#000";  // negro para contraste en amarillo
+    } else {
+      bgColor = "#b71c1c"; // rojo oscuro
+    }
 
-          return {
-            align: "center",
-            sx: {
-              backgroundColor: bgColor,
-              color: textColor,
-              whiteSpace: "normal",
-            },
-          };
-        },
-        Cell: ({ row }) => {
-          const asignadas = row.original.totalAsignadoMes ?? 0;
-          const total = row.original.totalHoras ?? DEFAULT_CAP;
-          return <span>{`${asignadas} / ${total}`}</span>;
-        },
-        muiTableBodyCellEditTextFieldProps: {
-          type: "number",
-          inputProps: { min: 0, step: 1 },
-        },
+    return {
+      align: "center",
+      sx: {
+        backgroundColor: bgColor,
+        color: textColor,
+        whiteSpace: "normal",
       },
+    };
+  },
+  Cell: ({ row }) => {
+    const asignadas = row.original.totalAsignadoMes ?? 0;
+    const total = row.original.totalHoras ?? DEFAULT_CAP;
+    return <span>{`${asignadas} / ${total}`}</span>;
+  },
+  muiTableBodyCellEditTextFieldProps: {
+    type: "number",
+    inputProps: { min: 0, step: 1 },
+  },
+},
+
     ],
     [selectedMonth.label]
   );
