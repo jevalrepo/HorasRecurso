@@ -102,7 +102,7 @@ const Recursos = () => {
   const [loading, setLoading] = useState(true);
   const [rowSelection, setRowSelection] = useState({});
   const [horasRecursoSeleccionado, setHorasRecursoSeleccionado] = useState([]);
-  const [setRefreshResumenKey] = useState(0);
+  const [refreshResumenKey, setRefreshResumenKey] = useState(0);
 
   const refreshRecursosKeepSelection = async () => {
     const currentId = selectedRecursoId; // recuerda quién está seleccionado
@@ -642,7 +642,7 @@ const Recursos = () => {
           }
           sx={{ py: 0.5, px: 1.25 }}
         >
-          Agregar recurso
+          Nuevo Recurso
         </Button>
 
         <Select

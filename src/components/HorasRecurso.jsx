@@ -1,3 +1,4 @@
+// src/components/HorasRecurso.jsx
 import { supabase } from "../lib/supabaseClient";
 import { createRow } from "material-react-table";
 import {
@@ -28,7 +29,9 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
   const [loading, setLoading] = useState(true);
   const [proyectos, setProyectos] = useState([]);
 
-  // 👇 overrides en caliente por fila (rowId) para mostrar tipo/folio al instante
+
+
+  // overrides por fila para mostrar tipo/folio al cambiar select
   const [draftByRowId, setDraftByRowId] = useState({}); // { [rowId]: { tipo, folio } }
 
   dayjs.locale("es");
@@ -45,6 +48,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
     []
   );
 
+  // catálogo de proyectos
   useEffect(() => {
     const fetchProyectos = async () => {
       const { data, error } = await supabase
@@ -170,7 +174,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
     [proyectos, meses, draftByRowId]
   );
 
-  // carga horas
+  // carga horas del recurso para los 3 meses
   useEffect(() => {
     const fetchHoras = async () => {
       if (!recursoId) return;
@@ -236,9 +240,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
   }, [recursoId, meses]);
 
   const notifyParent = async () => {
-    // avisa al resumen (si lo necesitas)
     onRefreshResumen?.();
-    // y avisa al padre para recargar la tabla Recursos y mantener selección
     await onMutateParent?.();
   };
 
@@ -265,31 +267,48 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
       }
       const newProyectoId = Number(values.proyecto_id);
 
-      // 2) Guarda (upsert) solo meses con horas
-      for (let i = 0; i < meses.length; i++) {
-        const horas = values[`horas_${i}`];
-        if (horas === "" || horas === null || horas === undefined) continue;
+      // ⛔️ Validación de FK
+      if (!Number.isFinite(newProyectoId)) {
+        await Swal.fire({
+          icon: "error",
+          title: "Proyecto requerido",
+          text: "Selecciona un proyecto válido antes de guardar.",
+          ...swalBase,
+        });
+        return;
+      }
 
-        const { error } = await supabase.from("horasrecurso").upsert(
-          [
-            {
-              recurso_id: recursoId,
-              proyecto_id: newProyectoId,
-              mes: meses[i].mes,
-              anio: meses[i].anio,
-              horas: parseFloat(horas),
-            },
-          ],
-          { onConflict: ["recurso_id", "proyecto_id", "mes", "anio"] }
-        );
+      // 2) Prepara filas válidas (solo meses con número)
+      const rows = [];
+      for (let i = 0; i < meses.length; i++) {
+        const val = values[`horas_${i}`];
+        if (val === "" || val == null) continue;
+        const horasNum = Number(val);
+        if (!Number.isFinite(horasNum)) continue;
+
+        rows.push({
+          recurso_id: recursoId,
+          proyecto_id: newProyectoId,
+          mes: meses[i].mes,
+          anio: meses[i].anio,
+          horas: horasNum,
+        });
+      }
+
+      if (rows.length) {
+        // 3) Upsert con onConflict en STRING
+        const { error } = await supabase
+          .from("horasrecurso")
+          .upsert(rows, { onConflict: "recurso_id,proyecto_id,anio,mes" });
         if (error) throw error;
       }
 
-      // 3) Si cambiaste de proyecto al editar, elimina los registros viejos
+      // 4) Si cambiaste de proyecto al editar, elimina registros viejos (solo si hubo nuevas horas)
       if (
         !isCreating &&
         oldProyectoId != null &&
-        Number(oldProyectoId) !== newProyectoId
+        Number(oldProyectoId) !== newProyectoId &&
+        rows.length > 0
       ) {
         const { error: delErr } = await supabase
           .from("horasrecurso")
@@ -307,11 +326,11 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
         if (delErr) throw delErr;
       }
 
-      // 4) Cierra edición/creación
+      // 5) Cierra edición/creación
       table.setEditingRow(null);
       table.setCreatingRow?.(null);
 
-      // 5) Actualiza el estado local optimistamente
+      // 6) Actualiza estado local optimista
       const pSel = proyectos.find((x) => Number(x.id) === newProyectoId);
       setData((prev) => {
         const cleaned =
@@ -329,7 +348,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
           tipo: pSel?.tipo ?? "",
           folio: pSel?.folio ?? "",
           ...Object.fromEntries(
-            meses.map((_, i) => [`horas_${i}`, values[`horas_${i}`] ?? ""] )
+            meses.map((_, i) => [`horas_${i}`, values[`horas_${i}`] ?? ""])
           ),
         };
 
@@ -343,7 +362,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
         return [base, ...cleaned];
       });
 
-      // 6) Limpia el draft
+      // 7) Limpia el draft
       setDraftByRowId?.((prev) => {
         const rowId = state.editingRow?.id ?? state.creatingRow?.id;
         if (!rowId) return prev;
@@ -351,11 +370,16 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
         return rest;
       });
 
-      // 7) 🔔 Notifica al padre para refrescar la tabla Recursos (y mantener selección)
+      // 8) Notifica al padre
       await notifyParent();
     } catch (error) {
-      console.error("Error al guardar horas:", error.message);
-      alert("Hubo un problema al guardar los datos.");
+      console.error("Error al guardar horas:", error);
+      await Swal.fire({
+        icon: "error",
+        title: "No se pudo guardar",
+        text: error?.message || "Revisa la consola para más detalles.",
+        ...swalBase,
+      });
     }
   };
 
@@ -399,14 +423,13 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
         ...swalBase,
       });
 
-      // 🔔 Notifica al padre
       await notifyParent();
     } catch (error) {
-      console.error("Error al eliminar fila:", error.message);
+      console.error("Error al eliminar fila:", error);
       await Swal.fire({
         icon: "error",
         title: "No se pudo eliminar",
-        text: error.message || "Intenta de nuevo.",
+        text: error?.message || "Intenta de nuevo.",
         ...swalBase,
       });
     }
@@ -440,7 +463,7 @@ const HorasRecurso = ({ recursoId, onRefreshResumen, onMutateParent }) => {
     onEditingRowSave: (props) => handleSaveRow(props),
     onCreatingRowSave: (props) => handleSaveRow(props),
 
-    // ==== 👇 COMPACTO ====
+    // compacto
     muiTableProps: {
       size: "small",
       sx: {
