@@ -1,14 +1,12 @@
-import { supabase } from '../lib/supabaseClient';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export async function getDataRecursos() {
-  const { data, error } = await supabase
-    .from('recursos')
-    .select('id, recurso, porcProyecto, porcMtto, horasProyecto, horasMtto, totalHoras');
-    console.log("Datos recibidos:", data); // 👈 Verifica esto en consola
-  if (error) {
-    console.error('Error al consultar recursos:', error);
+  const res = await fetch(`${API_URL}/api/recursos`);
+  if (!res.ok) {
+    console.error('Error al consultar recursos:', res.statusText);
     return [];
   }
+  const data = await res.json();
 
   return data.map((item) => ({
     id: item.id,
@@ -21,31 +19,16 @@ export async function getDataRecursos() {
   }));
 }
 
-
 export async function getHorasRecursoPorId(recursoId) {
-  const { data, error } = await supabase
-    .from("horasrecurso")
-    .select(`
-      id,
-      recurso_id,
-      proyecto_id,
-      horas,
-      mes,
-      anio,
-      proyectos (
-        tipo
-      )
-    `)
-    .eq("recurso_id", recursoId);
-
-  if (error) {
-    console.error("Error al consultar horasrecurso:", error);
+  const res = await fetch(`${API_URL}/api/horas-recurso?recurso_id=${recursoId}`);
+  if (!res.ok) {
+    console.error('Error al consultar horasrecurso:', res.statusText);
     return [];
   }
+  const data = await res.json();
 
-  // Mapear tipo directamente
   return data.map((item) => ({
     ...item,
-    tipo: item.proyectos?.tipo ?? "desconocido",
+    tipo: item.tipo ?? 'desconocido',
   }));
 }
